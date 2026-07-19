@@ -22,7 +22,7 @@ export async function loadPro() {
     // Only the top-level pro entrypoint being absent means "public build".
     // A missing module *nested under* pro is a real error — rethrow it.
     const isProEntrypointMissing =
-      isMissingModule && /\/pro\/index\.js/.test(ref);
+      isMissingModule && /[\\/]pro[\\/]index\.js/.test(ref);
     if (isProEntrypointMissing) return null;
     throw e; // real errors inside pro must not be silently hidden
   }
