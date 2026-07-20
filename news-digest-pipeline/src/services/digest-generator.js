@@ -116,13 +116,16 @@ export async function generateDigest(db, articles, config) {
   totalInputTokens += assemblyRes.inputTokens;
   totalOutputTokens += assemblyRes.outputTokens;
 
-  // Post-processing: remove any preamble before "#новости"
-  // Claude sometimes adds explanatory text before the actual digest
-  const digestStart = digestContent.indexOf('#новости');
-  if (digestStart > 0) {
-    digestContent = digestContent.substring(digestStart);
-    log.push(`Removed ${digestStart} chars of preamble before #новости`);
-  }
+  // Удаляем возможное вступление модели перед основным хэштегом дайджеста.
+const digestMarker = (config.hashtag || '#ДайджестTexturaLab').trim();
+const digestStart = digestContent.indexOf(digestMarker);
+
+if (digestStart > 0) {
+  digestContent = digestContent.substring(digestStart);
+  log.push(
+    `Removed ${digestStart} chars of preamble before ${digestMarker}`
+  );
+}
 
   // Create digest record
   const digestId = createDigest({
@@ -166,9 +169,11 @@ export async function generateDigest(db, articles, config) {
   // `#новости` marker is present. If anything looks off, skip cleanup so the
   // source messages remain available for retry.
   const saved = getDigest(digestId);
-  const digestOk = saved && typeof saved.content === 'string'
-    && saved.content.length > 100
-    && saved.content.includes('#новости');
+  const digestOk =
+  saved &&
+  typeof saved.content === 'string' &&
+  saved.content.length > 100 &&
+  saved.content.includes(digestMarker);
 
   if (!digestOk) {
     log.push('Skipping source cleanup: digest not confirmed valid');

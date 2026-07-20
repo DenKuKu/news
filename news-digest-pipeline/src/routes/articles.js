@@ -38,8 +38,10 @@ router.post('/', async (req, res) => {
         const result = insertArticle({ url: href, title, content: '', source: 'api' });
         if (!result.duplicate) {
           getDb().prepare(
-            `UPDATE articles SET fetch_error = ?, updated_at = datetime('now') WHERE id = ?`
-          ).run(fetchErr.message, result.id);
+  `UPDATE articles
+   SET fetch_error = ?, status = 'error', updated_at = datetime('now')
+   WHERE id = ?`
+).run(fetchErr.message, result.id);
         }
         return res.status(201).json({
           ...result,
