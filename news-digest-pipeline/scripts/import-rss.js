@@ -136,7 +136,9 @@ const NON_TEXTILE_PRINTING = [
   'concrete printing',
   '3d printing',
 ];
-
+const NON_TEXTILE_MATERIAL_TITLE_KEYWORDS = [
+  'metal materiality',
+];
 const NEGATIVE_KEYWORDS = [
   'stadium',
   'airport',
@@ -180,12 +182,19 @@ function relevanceScore(title, content) {
     fullText,
     NON_TEXTILE_PRINTING
   );
-
+const hasNonTextileMaterialTitle = includesAny(
+  normalizedTitle,
+  NON_TEXTILE_MATERIAL_TITLE_KEYWORDS
+);
   // Пластик, бетон и предметная 3D-печать нам не подходят,
   // если материал не связан с текстилем.
   if (hasNonTextilePrinting && !hasCoreTextile) {
     return -10;
   }
+  // Материалоцентричные публикации не про текстиль пропускаем.
+if (hasNonTextileMaterialTitle && !hasCoreTextile) {
+  return -10;
+}
 
   // Отрицательные признаки учитываем только в заголовке.
   // Иначе слово university или school в подписи автора
@@ -193,10 +202,7 @@ function relevanceScore(title, content) {
   if (includesAny(normalizedTitle, NEGATIVE_KEYWORDS)) {
     return -10;
   }
-
-  let score = 0;
-
-  for (const keyword of CORE_TEXTILE_KEYWORDS) {
+    for (const keyword of CORE_TEXTILE_KEYWORDS) {
     if (normalizedTitle.includes(keyword)) score += 10;
     else if (normalizedContent.includes(keyword)) score += 5;
   }
@@ -232,11 +238,11 @@ function relevanceScore(title, content) {
   }
 
   // Декоративные предметы — только при наличии трендового контекста.
-  if (hasDecorObject && hasTrend) {
-    return score;
-  }
+if (hasDecorObject && hasTrend) {
+  return score;
+}
 
-  return -5;
+return -5;
 }
 
 async function main() {
@@ -289,11 +295,18 @@ async function main() {
 
     const score = relevanceScore(title, content);
 
-    if (score < 4) {
-      skipped++;
-      console.log(`[rss] Не по теме (${score}): ${title}`);
-      continue;
-    }
+const fullText = `${title} ${content}`.toLowerCase();
+const hasCoreTextile = includesAny(fullText, CORE_TEXTILE_KEYWORDS);
+
+const minimumScore = hasCoreTextile ? 4 : 8;
+
+if (score < minimumScore) {
+  skipped++;
+  console.log(
+    `[rss] Не по теме (${score}, порог ${minimumScore}): ${title}`
+  );
+  continue;
+}
 
     console.log(`[rss] Релевантность ${score}: ${title}`);
 

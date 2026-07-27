@@ -1,0 +1,4 @@
+﻿# RSS-источники TexturaLab
+# По одному адресу в строке
+
+https://www.dezeen.com/feed/
