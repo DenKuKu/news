@@ -6,7 +6,6 @@ import { validateArticleUrl } from '../src/services/url-validator.js';
 
 const feedUrl = process.argv[2];
 const requestedLimit = Number.parseInt(process.argv[3] || '10', 10);
-
 const limit = Number.isFinite(requestedLimit)
   ? Math.min(Math.max(requestedLimit, 1), 50)
   : 10;
@@ -21,7 +20,6 @@ if (!feedUrl) {
 }
 
 const feedValidation = validateArticleUrl(feedUrl);
-
 if (!feedValidation.ok) {
   console.error(`RSS URL отклонён: ${feedValidation.error}`);
   process.exit(1);
@@ -41,202 +39,85 @@ const parser = new Parser({
 });
 
 const CORE_TEXTILE_KEYWORDS = [
-  'textile',
-  'fabric',
-  'upholstery',
-  'upholstered',
-  'velvet',
-  'velour',
-  'boucle',
-  'bouclé',
-  'jacquard',
-  'chenille',
-  'microfiber',
-  'cushion',
-  'pillow',
-  'curtain',
-  'drapery',
-  'soft furnishing',
-  'interior textile',
-  'printed fabric',
-  'printed textile',
-  'fabric print',
-  'textile print',
+  'textile', 'fabric', 'upholstery', 'upholstered', 'velvet', 'velour',
+  'boucle', 'bouclé', 'jacquard', 'chenille', 'microfiber', 'cushion',
+  'pillow', 'curtain', 'drapery', 'soft furnishing', 'interior textile',
+  'printed fabric', 'printed textile', 'fabric print', 'textile print',
   'patterned upholstery',
 ];
 
 const FURNITURE_KEYWORDS = [
-  'sofa',
-  'armchair',
-  'chair',
-  'seating',
-  'headboard',
-  'ottoman',
-  'pouf',
-  'bench',
-  'furniture',
+  'sofa', 'armchair', 'chair', 'seating', 'headboard', 'ottoman', 'pouf',
+  'bench', 'furniture',
 ];
 
 const TREND_KEYWORDS = [
-  'pattern',
-  'ornament',
-  'colour',
-  'color',
-  'colourful',
-  'colorful',
-  'maximalist',
-  'accent',
-  'statement',
-  'custom',
-  'personalised',
-  'personalized',
-  'bespoke',
-  'limited edition',
-  'interior',
-  'decor',
+  'pattern', 'ornament', 'colour', 'color', 'colourful', 'colorful',
+  'maximalist', 'accent', 'statement', 'custom', 'personalised',
+  'personalized', 'bespoke', 'limited edition', 'interior', 'decor',
 ];
 
 const INNOVATION_KEYWORDS = [
-  'collection',
-  'launches',
-  'released',
-  'reimagined',
-  'contemporary',
-  'modular',
-  'portable',
-  'adaptable',
-  'flexible',
-  'customisable',
-  'customizable',
-  'bespoke',
-  'limited edition',
-  'design week',
+  'collection', 'launches', 'released', 'reimagined', 'contemporary',
+  'modular', 'portable', 'adaptable', 'flexible', 'customisable',
+  'customizable', 'bespoke', 'limited edition', 'design week',
   'new designers',
 ];
 
 const DECOR_OBJECT_KEYWORDS = [
-  'room divider',
-  'dividing screen',
-  'screen',
-  'decorative panel',
-  'wall panel',
-  'rug',
-  'carpet',
-  'wallpaper',
-  'wallcovering',
-  'curtain',
-  'cushion',
-  'pillow',
-  'tapestry',
-  'textile art',
+  'room divider', 'dividing screen', 'screen', 'decorative panel',
+  'wall panel', 'rug', 'carpet', 'wallpaper', 'wallcovering', 'curtain',
+  'cushion', 'pillow', 'tapestry', 'textile art',
 ];
 
 const NON_TEXTILE_PRINTING = [
-  '3d-printed',
-  '3d printed',
-  'printed plastic',
-  'concrete printing',
+  '3d-printed', '3d printed', 'printed plastic', 'concrete printing',
   '3d printing',
 ];
 
-const NON_TEXTILE_MATERIAL_TITLE_KEYWORDS = [
-  'metal materiality',
-];
+const NON_TEXTILE_MATERIAL_TITLE_KEYWORDS = ['metal materiality'];
 
 const NEGATIVE_KEYWORDS = [
-  'stadium',
-  'airport',
-  'train terminal',
-  'railway station',
-  'bridge',
-  'skyscraper',
-  'office tower',
-  'school',
-  'university',
-  'hospital',
+  'stadium', 'airport', 'train terminal', 'railway station', 'bridge',
+  'skyscraper', 'office tower', 'school', 'university', 'hospital',
   'infrastructure',
 ];
 
 const TEXTURALAB_TECH_KEYWORDS = [
-  'digital textile printing',
-  'textile printing',
-  'fabric printing',
-  'digital printing',
-  'sublimation',
-  'sublimation printing',
-  'transfer printing',
-  'inkjet printing',
-  'pigment printing',
-  'dyeing',
-  'dye',
-  'finishing',
-  'textile finishing',
-  'coating',
-  'impregnation',
-  'water repellent',
-  'flame retardant',
-  'stenter',
-  'stentering',
-  'heat setting',
-  'heat-set',
-  'thermosol',
-  'padding',
-  'polyester',
-  'disperse dye',
-  'coloration',
-  'colouration',
+  'digital textile printing', 'textile printing', 'fabric printing',
+  'digital printing', 'sublimation', 'sublimation printing',
+  'transfer printing', 'inkjet printing', 'pigment printing', 'dyeing',
+  'dye', 'finishing', 'textile finishing', 'textile processing',
+  'coating', 'impregnation', 'water repellent', 'flame retardant',
+  'stenter', 'stentering', 'heat setting', 'heat-set', 'thermosol',
+  'padding', 'polyester', 'disperse dye', 'coloration', 'colouration',
+];
+
+const INDUSTRIAL_PRIORITY_TITLE_KEYWORDS = [
+  'kornit',
+  'atlas max',
+  'brückner',
+  'bruckner',
+  'eliar',
+  'resil chemicals',
 ];
 
 const PATTERN_DESIGN_KEYWORDS = [
-  'surface pattern',
-  'surface design',
-  'textile design',
-  'pattern design',
-  'print design',
-  'repeat pattern',
-  'repeating pattern',
-  'repeat',
-  'repeats',
-  'motif',
-  'colour palette',
-  'color palette',
-  'print trend',
-  'pattern trend',
+  'surface pattern', 'surface design', 'textile design', 'pattern design',
+  'print design', 'repeat pattern', 'repeating pattern', 'repeat', 'repeats',
+  'motif', 'colour palette', 'color palette', 'print trend', 'pattern trend',
 ];
 
 const PATTERN_NOISE_KEYWORDS = [
-  'licensing',
-  'license',
-  'pricing',
-  'price your',
-  'negotiate',
-  'course',
-  'workshop',
-  'class',
-  'career',
-  'portfolio',
-  'body of work',
-  'amplifier',
-  'how to transfer',
-  'tutorial',
+  'licensing', 'license', 'pricing', 'price your', 'negotiate', 'course',
+  'workshop', 'class', 'career', 'portfolio', 'body of work', 'amplifier',
+  'how to transfer', 'tutorial',
 ];
 
 const INTERIOR_STRONG_TREND_KEYWORDS = [
-  'quiet luxury',
-  'playful pattern',
-  'playful patterns',
-  'pattern trend',
-  'colour trend',
-  'color trend',
-  'brown',
-  'maximalism',
-  'maximalist',
-  'print',
-  'prints',
-  'pattern',
-  'patterns',
-  'milan',
-  'design week',
+  'quiet luxury', 'playful pattern', 'playful patterns', 'pattern trend',
+  'colour trend', 'color trend', 'brown', 'maximalism', 'maximalist',
+  'print', 'prints', 'pattern', 'patterns', 'milan', 'design week',
 ];
 
 function cleanText(value) {
@@ -274,9 +155,7 @@ function relevanceScore(title, content, sourceHostname = '') {
     'textileworld.com',
     'indiantextilemagazine.in',
   ];
-
   const patternSources = ['patternobserver.com'];
-
   const interiorSources = [
     'dezeen.com',
     'theinteriorsaddict.com',
@@ -293,46 +172,32 @@ function relevanceScore(title, content, sourceHostname = '') {
   const hasInnovation = includesAny(fullText, INNOVATION_KEYWORDS);
   const hasDecorObject = includesAny(fullText, DECOR_OBJECT_KEYWORDS);
 
-  const hasTexturaLabTech =
-    includesAny(fullText, TEXTURALAB_TECH_KEYWORDS);
   const hasTexturaLabTechTitle =
     includesAny(normalizedTitle, TEXTURALAB_TECH_KEYWORDS);
+  const hasIndustrialPriorityTitle =
+    includesAny(normalizedTitle, INDUSTRIAL_PRIORITY_TITLE_KEYWORDS);
 
-  const hasPatternDesign =
-    includesAny(fullText, PATTERN_DESIGN_KEYWORDS);
-  const hasPatternNoise =
-    includesAny(normalizedTitle, PATTERN_NOISE_KEYWORDS);
-
+  const hasPatternDesign = includesAny(fullText, PATTERN_DESIGN_KEYWORDS);
+  const hasPatternNoise = includesAny(normalizedTitle, PATTERN_NOISE_KEYWORDS);
   const hasStrongInteriorTrend =
     includesAny(normalizedTitle, INTERIOR_STRONG_TREND_KEYWORDS);
 
-  const hasNonTextilePrinting =
-    includesAny(fullText, NON_TEXTILE_PRINTING);
-
+  const hasNonTextilePrinting = includesAny(fullText, NON_TEXTILE_PRINTING);
   const hasNonTextileMaterialTitle =
     includesAny(normalizedTitle, NON_TEXTILE_MATERIAL_TITLE_KEYWORDS);
 
-  if (hasNonTextilePrinting && !hasCoreTextile) {
-    return -10;
-  }
-
-  if (hasNonTextileMaterialTitle && !hasCoreTextile) {
-    return -10;
-  }
-
-  if (includesAny(normalizedTitle, NEGATIVE_KEYWORDS)) {
-    return -10;
-  }
+  if (hasNonTextilePrinting && !hasCoreTextile) return -10;
+  if (hasNonTextileMaterialTitle && !hasCoreTextile) return -10;
+  if (includesAny(normalizedTitle, NEGATIVE_KEYWORDS)) return -10;
 
   if (isIndustrialTextileSource) {
     const usefulIndustrialSignal =
       hasTexturaLabTechTitle ||
+      hasIndustrialPriorityTitle ||
       (hasCoreTextile && hasFurniture) ||
       (hasCoreTextile && hasDecorObject);
 
-    if (!usefulIndustrialSignal) {
-      return -5;
-    }
+    if (!usefulIndustrialSignal) return -5;
   }
 
   if (isInteriorSource) {
@@ -342,24 +207,16 @@ function relevanceScore(title, content, sourceHostname = '') {
       (hasFurniture && (hasTrend || hasInnovation)) ||
       (hasDecorObject && hasTrend);
 
-    if (!usefulInteriorSignal) {
-      return -5;
-    }
+    if (!usefulInteriorSignal) return -5;
   }
 
   if (isPatternSource) {
-    if (hasPatternNoise) {
-      return -5;
-    }
+    if (hasPatternNoise) return -5;
 
     const usefulPatternSignal =
-      hasPatternDesign ||
-      hasTrend ||
-      hasCoreTextile;
+      hasPatternDesign || hasTrend || hasCoreTextile;
 
-    if (!usefulPatternSignal) {
-      return -5;
-    }
+    if (!usefulPatternSignal) return -5;
   }
 
   let score = 0;
@@ -399,9 +256,8 @@ function relevanceScore(title, content, sourceHostname = '') {
     else if (keywordMatches(normalizedContent, keyword)) score += 3;
   }
 
-  if (isIndustrialTextileSource && hasTexturaLabTechTitle) {
-    score += 4;
-  }
+  if (isIndustrialTextileSource && hasTexturaLabTechTitle) score += 4;
+  if (isIndustrialTextileSource && hasIndustrialPriorityTitle) score += 8;
 
   if (
     isInteriorSource &&
@@ -410,13 +266,8 @@ function relevanceScore(title, content, sourceHostname = '') {
     score += 4;
   }
 
-  if (isPatternSource && hasPatternDesign) {
-    score += 4;
-  }
-
-  if (isInteriorSource && hasStrongInteriorTrend) {
-    score += 8;
-  }
+  if (isPatternSource && hasPatternDesign) score += 4;
+  if (isInteriorSource && hasStrongInteriorTrend) score += 8;
 
   return score;
 }
@@ -427,9 +278,7 @@ async function main() {
   console.log(`[rss] Загружаем: ${feedValidation.href}`);
 
   const feed = await parser.parseURL(feedValidation.href);
-  const items = Array.isArray(feed.items)
-    ? feed.items.slice(0, limit)
-    : [];
+  const items = Array.isArray(feed.items) ? feed.items.slice(0, limit) : [];
 
   console.log(`[rss] Лента: ${feed.title || 'без названия'}`);
   console.log(`[rss] Получено элементов: ${items.length}`);
@@ -453,7 +302,6 @@ async function main() {
 
     const sourceHostname = new URL(articleValidation.href).hostname;
     const title = cleanText(item.title);
-
     const content = cleanText(
       item.contentSnippet ||
       item.content ||
@@ -484,7 +332,6 @@ async function main() {
     console.log(`[rss] Релевантность ${score}: ${title}`);
 
     const publishedAt = item.isoDate || item.pubDate || '';
-
     const preparedContent = [
       publishedAt ? `Дата публикации: ${publishedAt}` : '',
       content,
