@@ -16,9 +16,37 @@ import { callModel, sleep } from './llm.js';
 const MAX_CONTENT_LENGTH = 3000;
 const INTER_CALL_DELAY_MS = 200;
 const ANALYSIS_ATTEMPTS = 2;
+const MIN_RELEVANCE_SCORE = 55;
+const MAX_ACTIONS = 5;
 
 const RELATIONS = new Set(['прямая', 'смежная', 'слабая']);
 const CONFIDENCE_LEVELS = new Set(['низкая', 'средняя']);
+const CATEGORIES = new Set([
+  'production',
+  'print-business',
+  'design-trends',
+  'furniture-market',
+  'new-niches',
+  'other',
+]);
+
+const CATEGORY_LABELS = {
+  production: 'Производство, отделка и технологии',
+  'print-business': 'Цифровая печать и бизнес-модели',
+  'design-trends': 'Принты и интерьерные тренды',
+  'furniture-market': 'Мебельный рынок',
+  'new-niches': 'Новые ниши и применения',
+  other: 'Другие сигналы',
+};
+
+const CATEGORY_ORDER = [
+  'production',
+  'print-business',
+  'design-trends',
+  'furniture-market',
+  'new-niches',
+  'other',
+];
 
 function cleanText(value, maxLength = 1000) {
   return String(value || '')
@@ -51,6 +79,14 @@ function extractJson(rawText) {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
+function normalizeScore(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error('relevance_score должен быть числом от 0 до 100');
+  }
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
 function normalizeCard(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Ответ модели должен быть JSON-объектом');
@@ -58,8 +94,11 @@ function normalizeCard(value) {
 
   const titleRu = cleanText(value.title_ru, 180);
   const signal = cleanText(value.signal, 500);
+  const action = cleanText(value.action, 500);
   const question = cleanText(value.question, 400);
   const relation = cleanText(value.relation, 30).toLowerCase();
+  const category = cleanText(value.category, 40).toLowerCase();
+  const relevanceScore = normalizeScore(value.relevance_score);
   let confidence = cleanText(value.confidence, 30).toLowerCase();
 
   const factsSource = Array.isArray(value.facts)
@@ -76,9 +115,13 @@ function normalizeCard(value) {
   if (titleRu.length < 3) throw new Error('Пустой title_ru');
   if (facts.length === 0) throw new Error('Пустой массив facts');
   if (signal.length < 8) throw new Error('Пустой signal');
+  if (action.length < 8) throw new Error('Пустой action');
   if (question.length < 8) throw new Error('Пустой question');
   if (!RELATIONS.has(relation)) {
     throw new Error('relation должна быть: прямая, смежная или слабая');
+  }
+  if (!CATEGORIES.has(category)) {
+    throw new Error(`Неизвестная category: ${category}`);
   }
 
   // RSS-аннотация не даёт основания для высокой уверенности.
@@ -93,6 +136,9 @@ function normalizeCard(value) {
     signal,
     relation,
     confidence,
+    relevance_score: relevanceScore,
+    category,
+    action,
     question,
   };
 }
@@ -105,23 +151,53 @@ async function analyzeArticle(article, commentarySystem, config, log) {
   const contentTruncated = (article.content || '').slice(0, MAX_CONTENT_LENGTH);
 
   const baseUserMessage = [
+    'КОНТЕКСТ TEXTURALAB:',
+    '- B2B-компания для мебельных фабрик, декораторов и интерьерных студий.',
+    '- Ключевой приоритет: цифровая сублимационная печать по полиэстеровым мебельным тканям, короткие серии и дизайн по запросу.',
+    '- Дополнительные интересы: окрашивание, отделка и пропитка полиэстера; оборудование для текстильной обработки; новые применения интерьерного текстиля.',
+    '- Нужны не общие новости, а сигналы, способные повлиять на продукт, технологию, продажи, позиционирование или выбор ниши.',
+    '',
     `ЗАГОЛОВОК ИСТОЧНИКА: ${article.title || 'не указан'}`,
     '',
     'КРАТКОЕ СОДЕРЖАНИЕ RSS:',
     contentTruncated || 'не предоставлено',
     '',
+    'Оцени материал именно с точки зрения практической пользы для TexturaLab.',
+    'Шкала relevance_score:',
+    '- 85-100: прямой и сильный сигнал; может изменить решение, технологию, продукт или продажи.',
+    '- 70-84: полезный сигнал; стоит учитывать или проверить.',
+    '- 55-69: умеренно полезный; можно оставить в дайджесте, если есть конкретный вывод.',
+    '- 30-54: слабая связь; обычно не показывать владельцу.',
+    '- 0-29: шум или почти не относится к задачам TexturaLab.',
+    '',
+    'Не завышай оценку только потому, что в тексте встречаются слова textile, design, print, furniture или polyester.',
+    'Пример слабого сигнала: арт-объект, выставочная инсталляция или корпоративная новость без понятного применения для TexturaLab.',
+    'Пример сильного сигнала: новая технология печати/отделки, химия для текстиля, оборудование, on-demand модель, повторяющийся интерьерный тренд с применением к принтам.',
+    '',
+    'Категории:',
+    '- production: окрашивание, отделка, пропитка, химия, оборудование, автоматизация, термообработка.',
+    '- print-business: цифровая печать, on-demand, короткие серии, персонализация, экономика печати.',
+    '- design-trends: принты, паттерны, цвета, интерьерные и текстильные тренды.',
+    '- furniture-market: мебельные фабрики, обивка, продуктовые изменения на мебельном рынке.',
+    '- new-niches: новые применения ткани вне основного мебельного рынка.',
+    '- other: всё остальное.',
+    '',
     'Верни только один валидный JSON-объект без Markdown и пояснений:',
     '{',
     '  "title_ru": "естественный русский заголовок",',
     '  "facts": ["факт 1", "факт 2"],',
-    '  "signal": "один осторожный возможный сигнал",',
+    '  "signal": "что именно это может означать для TexturaLab, без общих фраз",',
     '  "relation": "прямая | смежная | слабая",',
     '  "confidence": "низкая | средняя",',
+    '  "relevance_score": 0,',
+    '  "category": "production | print-business | design-trends | furniture-market | new-niches | other",',
+    '  "action": "одно конкретное действие или гипотеза для TexturaLab; если пользы почти нет, так и напиши",',
     '  "question": "один конкретный вопрос для проверки"',
     '}',
     '',
     'Не добавляй сведения, которых нет в RSS-аннотации.',
-    'Не используй выражения «рост интереса», «растёт спрос», «рынок переходит», «смещение рынка» или «становится трендом».',
+    'Не используй выражения «рост интереса», «растёт спрос», «рынок переходит», «смещение рынка» или «становится трендом», если этого прямо не подтверждает источник.',
+    'Не придумывай технологическую связь. Если оборудование относится к отделке, не называй его оборудованием цифровой печати.',
   ].join('\n');
 
   let totalInputTokens = 0;
@@ -136,7 +212,7 @@ async function analyzeArticle(article, commentarySystem, config, log) {
     const response = await callModel(config, {
       system: commentarySystem,
       user: userMessage,
-      maxTokens: 900,
+      maxTokens: 1100,
     });
 
     totalInputTokens += response.inputTokens;
@@ -154,31 +230,64 @@ async function analyzeArticle(article, commentarySystem, config, log) {
   throw lastError || new Error('Не удалось получить валидный JSON');
 }
 
-function buildDigest(entries, config) {
- const marker = '#ДайджестTexturaLab';
+function renderEntry({ article, card }) {
+  const factLines = card.facts.map((fact) => `- ${fact}`).join('\n');
 
-  const sections = entries.map(({ article, card }, index) => {
-    const factLines = card.facts.map((fact) => `- ${fact}`).join('\n');
+  return [
+    `#### ${card.title_ru}`,
+    '',
+    `**Полезность для TexturaLab:** ${card.relevance_score}/100 · ${card.relation} связь · уверенность ${card.confidence}`,
+    '',
+    '**Что известно**',
+    factLines,
+    '',
+    '**Почему это важно**',
+    card.signal,
+    '',
+    '**Что делать / проверить**',
+    card.action,
+    '',
+    `Контрольный вопрос: ${card.question}`,
+    '',
+    `Источник: ${(article.source || '').replace(/^rss:/, '').replace(/^www\./, '')}`,
+    `Читать оригинал: ${article.url}`,
+  ].join('\n');
+}
 
-    return [
-      `### ${index + 1}. ${card.title_ru}`,
+function buildDigest(entries, config, skippedCount = 0) {
+  const marker = '#ДайджестTexturaLab';
+  const sorted = [...entries].sort((a, b) => b.card.relevance_score - a.card.relevance_score);
+  const groupedSections = [];
+
+  for (const category of CATEGORY_ORDER) {
+    const categoryEntries = sorted.filter(({ card }) => card.category === category);
+    if (categoryEntries.length === 0) continue;
+
+    groupedSections.push([
+      `### ${CATEGORY_LABELS[category]}`,
       '',
-      '**Что известно**',
-      factLines,
-      '',
-      '**Возможный сигнал**',
-      card.signal,
-      '',
-      `**Связь с TexturaLab:** ${card.relation}.`,
-      `**Уверенность:** ${card.confidence}.`,
-      '',
-           '**Что стоит проверить**',
-      card.question,
-      '',
-      `Источник: ${(article.source || '').replace(/^rss:/, '').replace(/^www\./, '')}`,
-      `Читать оригинал: ${article.url}`,
-    ].join('\n');
-  });
+      ...categoryEntries.flatMap((entry, index) => (
+        index === categoryEntries.length - 1
+          ? [renderEntry(entry)]
+          : [renderEntry(entry), '', '---', '']
+      )),
+    ].join('\n'));
+  }
+
+  const actions = [];
+  const seenActions = new Set();
+  for (const { card } of sorted) {
+    const action = cleanText(card.action, 500);
+    const key = action.toLowerCase();
+    if (!action || seenActions.has(key)) continue;
+    seenActions.add(key);
+    actions.push(action);
+    if (actions.length >= MAX_ACTIONS) break;
+  }
+
+  const actionLines = actions.length > 0
+    ? actions.map((action, index) => `${index + 1}. ${action}`).join('\n')
+    : 'Нет действий, которые можно обосновать текущими RSS-аннотациями.';
 
   const ending = [];
   if (cleanText(config.boundaryIntent, 1000)) {
@@ -188,18 +297,32 @@ function buildDigest(entries, config) {
     ending.push(cleanText(config.hashtagsSuffix, 1000));
   }
 
+  const filterNote = skippedCount > 0
+    ? `Из исходной очереди не показано слабых материалов: ${skippedCount}. Порог полезности — ${MIN_RELEVANCE_SCORE}/100.`
+    : `Все обработанные материалы прошли порог полезности ${MIN_RELEVANCE_SCORE}/100.`;
+
   return [
     marker,
     '',
-    'Ниже — подборка отдельных отраслевых сигналов. Она не доказывает сформировавшийся тренд, но показывает темы, которые стоит проверить на других источниках.',
+    `Отобраны только сигналы с практической полезностью для TexturaLab. ${filterNote}`,
     '',
-    ...sections.flatMap((section, index) => (
-      index === sections.length - 1 ? [section] : [section, '', '---', '']
+    '### Что требует внимания в первую очередь',
+    '',
+    ...sorted.slice(0, 3).map(({ card }, index) => (
+      `${index + 1}. **${card.title_ru}** — ${card.signal}`
     )),
     '',
-    '### Общая картина',
+    ...groupedSections.flatMap((section, index) => (
+      index === groupedSections.length - 1 ? [section] : [section, '', '---', '']
+    )),
     '',
-    'Эти материалы относятся к разным участкам мебельного и интерьерного рынка. Для вывода о повторяющейся тенденции нужно сопоставить их с более широкой выборкой источников.',
+    '### Что делать TexturaLab',
+    '',
+    actionLines,
+    '',
+    '### Как читать этот дайджест',
+    '',
+    'Оценка отражает не важность новости вообще, а её возможную практическую ценность именно для TexturaLab. Один материал не считается доказательством рыночного тренда; повторяющиеся сигналы нужно подтверждать другими источниками.',
     '',
     ...ending,
   ].filter((part) => part !== null && part !== undefined).join('\n');
@@ -210,7 +333,7 @@ export async function generateDigest(db, articles, config) {
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
-  log.push(`Starting structured digest generation for ${articles.length} articles`);
+  log.push(`Starting ranked digest generation for ${articles.length} articles`);
 
   // Автоматически возвращаем в очередь только давно зависшие статьи.
   const recovered = db.prepare(
@@ -239,18 +362,18 @@ export async function generateDigest(db, articles, config) {
     ].join('\n');
   }
 
-  const entries = [];
+  const analyzedEntries = [];
 
   for (const article of articles) {
     try {
       if (article.commentary) {
         try {
           const card = parseCardFromCommentary(article.commentary);
-          entries.push({ article, card });
-          log.push(`Reused structured commentary for article ${article.id}`);
+          analyzedEntries.push({ article, card });
+          log.push(`Reused ranked commentary for article ${article.id}`);
           continue;
         } catch {
-          // Старый текстовый комментарий или повреждённый JSON — анализируем заново.
+          // Старый комментарий без рейтинга/категории или повреждённый JSON — анализируем заново.
         }
       }
 
@@ -264,8 +387,11 @@ export async function generateDigest(db, articles, config) {
       updateArticleCommentary(article.id, storedJson);
       article.commentary = storedJson;
 
-      entries.push({ article, card: result.card });
-      log.push(`Generated structured analysis for article ${article.id}`);
+      analyzedEntries.push({ article, card: result.card });
+      log.push(
+        `Generated ranked analysis for article ${article.id}: `
+        + `score=${result.card.relevance_score}, category=${result.card.category}`
+      );
 
       await sleep(INTER_CALL_DELAY_MS);
     } catch (error) {
@@ -274,12 +400,29 @@ export async function generateDigest(db, articles, config) {
     }
   }
 
-  if (entries.length === 0) {
+  if (analyzedEntries.length === 0) {
     throw new Error('No valid structured article analyses — cannot assemble digest');
   }
 
+  const entries = analyzedEntries
+    .filter(({ card }) => card.relevance_score >= MIN_RELEVANCE_SCORE)
+    .sort((a, b) => b.card.relevance_score - a.card.relevance_score);
+
+  const skippedEntries = analyzedEntries.filter(
+    ({ card }) => card.relevance_score < MIN_RELEVANCE_SCORE
+  );
+
+  for (const { article, card } of skippedEntries) {
+    log.push(`Filtered weak article ${article.id}: score=${card.relevance_score}`);
+    updateArticleStatus(article.id, 'ignored');
+  }
+
+  if (entries.length === 0) {
+    throw new Error(`All analyzed articles scored below ${MIN_RELEVANCE_SCORE}`);
+  }
+
   // Финальный текст собирается обычным кодом. Второй вызов модели не используется.
-  const digestContent = buildDigest(entries, config);
+  const digestContent = buildDigest(entries, config, skippedEntries.length);
   const today = new Date().toISOString().slice(0, 10);
 
   const digestId = createDigest({
@@ -300,7 +443,8 @@ export async function generateDigest(db, articles, config) {
 
   log.push(
     `Tokens: in=${totalInputTokens} out=${totalOutputTokens} | `
-    + `Model: ${config.claudeModel} | deterministic assembly=true`
+    + `Model: ${config.claudeModel} | ranked assembly=true | `
+    + `included=${entries.length} filtered=${skippedEntries.length}`
   );
 
   updateDigest(digestId, {
