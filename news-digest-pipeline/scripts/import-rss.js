@@ -159,7 +159,7 @@ function relevanceScore(title, content, sourceHostname = '') {
   const interiorSources = [
     'dezeen.com',
     'theinteriorsaddict.com',
-    'interiordesign.net',
+    'design-milk.com',
   ];
 
   const isIndustrialTextileSource = industrialTextileSources.includes(host);
