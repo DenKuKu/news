@@ -172,10 +172,11 @@ function buildDigest(entries, config) {
       `**Связь с TexturaLab:** ${card.relation}.`,
       `**Уверенность:** ${card.confidence}.`,
       '',
-      '**Что стоит проверить**',
+           '**Что стоит проверить**',
       card.question,
       '',
-      `Источник: ${article.url}`,
+      `Источник: ${(article.source || '').replace(/^rss:/, '').replace(/^www\./, '')}`,
+      `Читать оригинал: ${article.url}`,
     ].join('\n');
   });
 

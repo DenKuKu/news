@@ -164,85 +164,278 @@ function cleanText(value) {
     .trim();
 }
 
-function includesAny(text, keywords) {
-  return keywords.some((keyword) => text.includes(keyword));
+function keywordMatches(text, keyword) {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i');
+  return pattern.test(text);
 }
 
-function relevanceScore(title, content) {
+function includesAny(text, keywords) {
+  return keywords.some((keyword) => keywordMatches(text, keyword));
+}
+const TEXTURALAB_TECH_KEYWORDS = [
+  'digital textile printing',
+  'textile printing',
+  'fabric printing',
+  'digital printing',
+  'sublimation',
+  'sublimation printing',
+  'transfer printing',
+  'inkjet printing',
+  'pigment printing',
+  'dyeing',
+  'dye',
+  'finishing',
+  'textile finishing',
+  'coating',
+  'impregnation',
+  'water repellent',
+  'flame retardant',
+  'stenter',
+  'stentering',
+  'heat setting',
+  'heat-set',
+  'thermosol',
+  'padding',
+  'polyester',
+  'disperse dye',
+  'coloration',
+  'colouration',
+];
+
+const PATTERN_DESIGN_KEYWORDS = [
+  'surface pattern',
+  'surface design',
+  'textile design',
+  'pattern design',
+  'print design',
+  'repeat pattern',
+  'repeating pattern',
+  'repeat',
+  'repeats',
+  'motif',
+  'colour palette',
+  'color palette',
+  'print trend',
+  'pattern trend',
+];
+const PATTERN_NOISE_KEYWORDS = [
+  'licensing',
+  'license',
+  'pricing',
+  'price your',
+  'negotiate',
+  'course',
+  'workshop',
+  'class',
+  'career',
+  'portfolio',
+  'body of work',
+  'amplifier',
+  'how to transfer',
+  'tutorial',
+];
+
+const INTERIOR_STRONG_TREND_KEYWORDS = [
+  'quiet luxury',
+  'playful pattern',
+  'playful patterns',
+  'pattern trend',
+  'colour trend',
+  'color trend',
+  'brown',
+  'maximalism',
+  'maximalist',
+  'print',
+  'prints',
+  'pattern',
+  'patterns',
+  'milan',
+  'design week',
+];
+function relevanceScore(title, content, sourceHostname = '') {
   const normalizedTitle = String(title || '').toLowerCase();
   const normalizedContent = String(content || '').toLowerCase();
   const fullText = `${normalizedTitle} ${normalizedContent}`;
+
+  const host = String(sourceHostname || '')
+    .toLowerCase()
+    .replace(/^www\./, '');
+
+  const industrialTextileSources = [
+    'textilegence.com',
+    'textileworld.com',
+    'indiantextilemagazine.in',
+  ];
+
+  const patternSources = [
+    'patternobserver.com',
+  ];
+
+  const interiorSources = [
+    'dezeen.com',
+    'theinteriorsaddict.com',
+    'interiordesign.net',
+  ];
+
+  const isIndustrialTextileSource =
+    industrialTextileSources.includes(host);
+
+  const isPatternSource =
+    patternSources.includes(host);
+
+  const isInteriorSource =
+    interiorSources.includes(host);
 
   const hasCoreTextile = includesAny(fullText, CORE_TEXTILE_KEYWORDS);
   const hasFurniture = includesAny(fullText, FURNITURE_KEYWORDS);
   const hasTrend = includesAny(fullText, TREND_KEYWORDS);
   const hasInnovation = includesAny(fullText, INNOVATION_KEYWORDS);
   const hasDecorObject = includesAny(fullText, DECOR_OBJECT_KEYWORDS);
-  const hasNonTextilePrinting = includesAny(
-    fullText,
-    NON_TEXTILE_PRINTING
-  );
-const hasNonTextileMaterialTitle = includesAny(
-  normalizedTitle,
-  NON_TEXTILE_MATERIAL_TITLE_KEYWORDS
-);
-  // Пластик, бетон и предметная 3D-печать нам не подходят,
-  // если материал не связан с текстилем.
+
+  const hasTexturaLabTech =
+    includesAny(fullText, TEXTURALAB_TECH_KEYWORDS);
+    const hasTexturaLabTechTitle =
+  includesAny(normalizedTitle, TEXTURALAB_TECH_KEYWORDS);
+
+  const hasPatternDesign =
+    includesAny(fullText, PATTERN_DESIGN_KEYWORDS);
+    const hasPatternNoise =
+  includesAny(normalizedTitle, PATTERN_NOISE_KEYWORDS);
+
+const hasStrongInteriorTrend =
+  includesAny(normalizedTitle, INTERIOR_STRONG_TREND_KEYWORDS);
+
+  const hasNonTextilePrinting =
+    includesAny(fullText, NON_TEXTILE_PRINTING);
+
+  const hasNonTextileMaterialTitle =
+    includesAny(
+      normalizedTitle,
+      NON_TEXTILE_MATERIAL_TITLE_KEYWORDS
+    );
+
   if (hasNonTextilePrinting && !hasCoreTextile) {
     return -10;
   }
-  // Материалоцентричные публикации не про текстиль пропускаем.
-if (hasNonTextileMaterialTitle && !hasCoreTextile) {
-  return -10;
-}
 
-  // Отрицательные признаки учитываем только в заголовке.
-  // Иначе слово university или school в подписи автора
-  // может ошибочно уничтожить хорошую мебельную новость.
+  if (hasNonTextileMaterialTitle && !hasCoreTextile) {
+    return -10;
+  }
+
   if (includesAny(normalizedTitle, NEGATIVE_KEYWORDS)) {
     return -10;
   }
-    for (const keyword of CORE_TEXTILE_KEYWORDS) {
-    if (normalizedTitle.includes(keyword)) score += 10;
-    else if (normalizedContent.includes(keyword)) score += 5;
+
+  /*
+   * Промышленные текстильные СМИ.
+   * Само наличие слова textile больше недостаточно.
+   */
+  if (isIndustrialTextileSource) {
+    const usefulIndustrialSignal =
+      hasTexturaLabTech ||
+      (hasCoreTextile && hasFurniture) ||
+      (hasCoreTextile && hasDecorObject);
+
+    if (!usefulIndustrialSignal) {
+      return -5;
+    }
+  }
+
+  /*
+   * Интерьерные СМИ.
+   * Ищем ткань, мягкую мебель или декоративный объект
+   * в сочетании с дизайном / трендом.
+   */
+  if (isInteriorSource) {
+  const usefulInteriorSignal =
+    hasCoreTextile ||
+    hasStrongInteriorTrend ||
+    (hasFurniture && (hasTrend || hasInnovation)) ||
+    (hasDecorObject && hasTrend);
+
+  if (!usefulInteriorSignal) {
+    return -5;
+  }
+}
+
+  /*
+   * Pattern Observer и аналогичные источники.
+   * Здесь pattern/surface/textile design сами по себе полезны.
+   */
+  if (isPatternSource) {
+  if (hasPatternNoise) {
+    return -5;
+  }
+
+  const usefulPatternSignal =
+    hasPatternDesign ||
+    hasTrend ||
+    hasCoreTextile;
+
+  if (!usefulPatternSignal) {
+    return -5;
+  }
+}
+
+  let score = 0;
+
+  for (const keyword of CORE_TEXTILE_KEYWORDS) {
+    if (keywordMatches(normalizedTitle, keyword)) score += 6;
+    else if (keywordMatches(normalizedContent, keyword)) score += 3;
+  }
+
+  for (const keyword of TEXTURALAB_TECH_KEYWORDS) {
+    if (keywordMatches(normalizedTitle, keyword)) score += 8;
+    else if (keywordMatches(normalizedContent, keyword)) score += 4;
   }
 
   for (const keyword of FURNITURE_KEYWORDS) {
-    if (normalizedTitle.includes(keyword)) score += 4;
-    else if (normalizedContent.includes(keyword)) score += 2;
+    if (keywordMatches(normalizedTitle, keyword)) score += 4;
+    else if (keywordMatches(normalizedContent, keyword)) score += 2;
   }
 
   for (const keyword of DECOR_OBJECT_KEYWORDS) {
-    if (normalizedTitle.includes(keyword)) score += 4;
-    else if (normalizedContent.includes(keyword)) score += 2;
+    if (keywordMatches(normalizedTitle, keyword)) score += 4;
+    else if (keywordMatches(normalizedContent, keyword)) score += 2;
   }
 
   for (const keyword of TREND_KEYWORDS) {
-    if (normalizedTitle.includes(keyword)) score += 3;
-    else if (normalizedContent.includes(keyword)) score += 1;
+    if (keywordMatches(normalizedTitle, keyword)) score += 3;
+    else if (keywordMatches(normalizedContent, keyword)) score += 1;
   }
 
   for (const keyword of INNOVATION_KEYWORDS) {
-    if (normalizedTitle.includes(keyword)) score += 3;
-    else if (normalizedContent.includes(keyword)) score += 1;
+    if (keywordMatches(normalizedTitle, keyword)) score += 3;
+    else if (keywordMatches(normalizedContent, keyword)) score += 1;
   }
 
-  // Основной текстиль принимаем всегда.
-  if (hasCoreTextile) {
-    return Math.max(score, 6);
+  for (const keyword of PATTERN_DESIGN_KEYWORDS) {
+    if (keywordMatches(normalizedTitle, keyword)) score += 6;
+    else if (keywordMatches(normalizedContent, keyword)) score += 3;
   }
 
-  // Мебель принимаем, если есть дизайнерский или продуктовый сигнал.
-  if (hasFurniture && (hasTrend || hasInnovation)) {
-    return score;
+  if (isIndustrialTextileSource && hasTexturaLabTech) {
+    score += 4;
   }
 
-  // Декоративные предметы — только при наличии трендового контекста.
-if (hasDecorObject && hasTrend) {
-  return score;
+  if (
+    isInteriorSource &&
+    (
+      (hasFurniture && hasTrend) ||
+      (hasDecorObject && hasTrend)
+    )
+  ) {
+    score += 4;
+  }
+
+  if (isPatternSource && hasPatternDesign) {
+    score += 4;
+  }
+if (isInteriorSource && hasStrongInteriorTrend) {
+  score += 8;
 }
-
-return -5;
+  return score;
 }
 
 async function main() {
@@ -274,7 +467,7 @@ async function main() {
       );
       continue;
     }
-
+const sourceHostname = new URL(articleValidation.href).hostname;
     const title = cleanText(item.title);
 
     const content = cleanText(
@@ -293,12 +486,9 @@ async function main() {
       continue;
     }
 
-    const score = relevanceScore(title, content);
+    const score = relevanceScore(title, content, sourceHostname);
 
-const fullText = `${title} ${content}`.toLowerCase();
-const hasCoreTextile = includesAny(fullText, CORE_TEXTILE_KEYWORDS);
-
-const minimumScore = hasCoreTextile ? 4 : 8;
+const minimumScore = 8;
 
 if (score < minimumScore) {
   skipped++;
@@ -311,8 +501,7 @@ if (score < minimumScore) {
     console.log(`[rss] Релевантность ${score}: ${title}`);
 
     const publishedAt = item.isoDate || item.pubDate || '';
-    const sourceHostname = new URL(feedValidation.href).hostname;
-
+   
     const preparedContent = [
       publishedAt ? `Дата публикации: ${publishedAt}` : '',
       content,
