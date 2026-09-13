@@ -95,6 +95,7 @@ const TREND_KEYWORDS = [
   'interior',
   'decor',
 ];
+
 const INNOVATION_KEYWORDS = [
   'collection',
   'launches',
@@ -129,6 +130,7 @@ const DECOR_OBJECT_KEYWORDS = [
   'tapestry',
   'textile art',
 ];
+
 const NON_TEXTILE_PRINTING = [
   '3d-printed',
   '3d printed',
@@ -136,9 +138,11 @@ const NON_TEXTILE_PRINTING = [
   'concrete printing',
   '3d printing',
 ];
+
 const NON_TEXTILE_MATERIAL_TITLE_KEYWORDS = [
   'metal materiality',
 ];
+
 const NEGATIVE_KEYWORDS = [
   'stadium',
   'airport',
@@ -153,26 +157,6 @@ const NEGATIVE_KEYWORDS = [
   'infrastructure',
 ];
 
-function cleanText(value) {
-  return String(value || '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function keywordMatches(text, keyword) {
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i');
-  return pattern.test(text);
-}
-
-function includesAny(text, keywords) {
-  return keywords.some((keyword) => keywordMatches(text, keyword));
-}
 const TEXTURALAB_TECH_KEYWORDS = [
   'digital textile printing',
   'textile printing',
@@ -219,6 +203,7 @@ const PATTERN_DESIGN_KEYWORDS = [
   'print trend',
   'pattern trend',
 ];
+
 const PATTERN_NOISE_KEYWORDS = [
   'licensing',
   'license',
@@ -253,6 +238,28 @@ const INTERIOR_STRONG_TREND_KEYWORDS = [
   'milan',
   'design week',
 ];
+
+function cleanText(value) {
+  return String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function keywordMatches(text, keyword) {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i');
+  return pattern.test(text);
+}
+
+function includesAny(text, keywords) {
+  return keywords.some((keyword) => keywordMatches(text, keyword));
+}
+
 function relevanceScore(title, content, sourceHostname = '') {
   const normalizedTitle = String(title || '').toLowerCase();
   const normalizedContent = String(content || '').toLowerCase();
@@ -268,9 +275,7 @@ function relevanceScore(title, content, sourceHostname = '') {
     'indiantextilemagazine.in',
   ];
 
-  const patternSources = [
-    'patternobserver.com',
-  ];
+  const patternSources = ['patternobserver.com'];
 
   const interiorSources = [
     'dezeen.com',
@@ -278,14 +283,9 @@ function relevanceScore(title, content, sourceHostname = '') {
     'interiordesign.net',
   ];
 
-  const isIndustrialTextileSource =
-    industrialTextileSources.includes(host);
-
-  const isPatternSource =
-    patternSources.includes(host);
-
-  const isInteriorSource =
-    interiorSources.includes(host);
+  const isIndustrialTextileSource = industrialTextileSources.includes(host);
+  const isPatternSource = patternSources.includes(host);
+  const isInteriorSource = interiorSources.includes(host);
 
   const hasCoreTextile = includesAny(fullText, CORE_TEXTILE_KEYWORDS);
   const hasFurniture = includesAny(fullText, FURNITURE_KEYWORDS);
@@ -295,25 +295,22 @@ function relevanceScore(title, content, sourceHostname = '') {
 
   const hasTexturaLabTech =
     includesAny(fullText, TEXTURALAB_TECH_KEYWORDS);
-    const hasTexturaLabTechTitle =
-  includesAny(normalizedTitle, TEXTURALAB_TECH_KEYWORDS);
+  const hasTexturaLabTechTitle =
+    includesAny(normalizedTitle, TEXTURALAB_TECH_KEYWORDS);
 
   const hasPatternDesign =
     includesAny(fullText, PATTERN_DESIGN_KEYWORDS);
-    const hasPatternNoise =
-  includesAny(normalizedTitle, PATTERN_NOISE_KEYWORDS);
+  const hasPatternNoise =
+    includesAny(normalizedTitle, PATTERN_NOISE_KEYWORDS);
 
-const hasStrongInteriorTrend =
-  includesAny(normalizedTitle, INTERIOR_STRONG_TREND_KEYWORDS);
+  const hasStrongInteriorTrend =
+    includesAny(normalizedTitle, INTERIOR_STRONG_TREND_KEYWORDS);
 
   const hasNonTextilePrinting =
     includesAny(fullText, NON_TEXTILE_PRINTING);
 
   const hasNonTextileMaterialTitle =
-    includesAny(
-      normalizedTitle,
-      NON_TEXTILE_MATERIAL_TITLE_KEYWORDS
-    );
+    includesAny(normalizedTitle, NON_TEXTILE_MATERIAL_TITLE_KEYWORDS);
 
   if (hasNonTextilePrinting && !hasCoreTextile) {
     return -10;
@@ -327,13 +324,9 @@ const hasStrongInteriorTrend =
     return -10;
   }
 
-  /*
-   * Промышленные текстильные СМИ.
-   * Само наличие слова textile больше недостаточно.
-   */
   if (isIndustrialTextileSource) {
     const usefulIndustrialSignal =
-      hasTexturaLabTech ||
+      hasTexturaLabTechTitle ||
       (hasCoreTextile && hasFurniture) ||
       (hasCoreTextile && hasDecorObject);
 
@@ -342,41 +335,32 @@ const hasStrongInteriorTrend =
     }
   }
 
-  /*
-   * Интерьерные СМИ.
-   * Ищем ткань, мягкую мебель или декоративный объект
-   * в сочетании с дизайном / трендом.
-   */
   if (isInteriorSource) {
-  const usefulInteriorSignal =
-    hasCoreTextile ||
-    hasStrongInteriorTrend ||
-    (hasFurniture && (hasTrend || hasInnovation)) ||
-    (hasDecorObject && hasTrend);
+    const usefulInteriorSignal =
+      hasCoreTextile ||
+      hasStrongInteriorTrend ||
+      (hasFurniture && (hasTrend || hasInnovation)) ||
+      (hasDecorObject && hasTrend);
 
-  if (!usefulInteriorSignal) {
-    return -5;
+    if (!usefulInteriorSignal) {
+      return -5;
+    }
   }
-}
 
-  /*
-   * Pattern Observer и аналогичные источники.
-   * Здесь pattern/surface/textile design сами по себе полезны.
-   */
   if (isPatternSource) {
-  if (hasPatternNoise) {
-    return -5;
-  }
+    if (hasPatternNoise) {
+      return -5;
+    }
 
-  const usefulPatternSignal =
-    hasPatternDesign ||
-    hasTrend ||
-    hasCoreTextile;
+    const usefulPatternSignal =
+      hasPatternDesign ||
+      hasTrend ||
+      hasCoreTextile;
 
-  if (!usefulPatternSignal) {
-    return -5;
+    if (!usefulPatternSignal) {
+      return -5;
+    }
   }
-}
 
   let score = 0;
 
@@ -415,16 +399,13 @@ const hasStrongInteriorTrend =
     else if (keywordMatches(normalizedContent, keyword)) score += 3;
   }
 
-  if (isIndustrialTextileSource && hasTexturaLabTech) {
+  if (isIndustrialTextileSource && hasTexturaLabTechTitle) {
     score += 4;
   }
 
   if (
     isInteriorSource &&
-    (
-      (hasFurniture && hasTrend) ||
-      (hasDecorObject && hasTrend)
-    )
+    ((hasFurniture && hasTrend) || (hasDecorObject && hasTrend))
   ) {
     score += 4;
   }
@@ -432,9 +413,11 @@ const hasStrongInteriorTrend =
   if (isPatternSource && hasPatternDesign) {
     score += 4;
   }
-if (isInteriorSource && hasStrongInteriorTrend) {
-  score += 8;
-}
+
+  if (isInteriorSource && hasStrongInteriorTrend) {
+    score += 8;
+  }
+
   return score;
 }
 
@@ -467,7 +450,8 @@ async function main() {
       );
       continue;
     }
-const sourceHostname = new URL(articleValidation.href).hostname;
+
+    const sourceHostname = new URL(articleValidation.href).hostname;
     const title = cleanText(item.title);
 
     const content = cleanText(
@@ -487,21 +471,20 @@ const sourceHostname = new URL(articleValidation.href).hostname;
     }
 
     const score = relevanceScore(title, content, sourceHostname);
+    const minimumScore = 8;
 
-const minimumScore = 8;
-
-if (score < minimumScore) {
-  skipped++;
-  console.log(
-    `[rss] Не по теме (${score}, порог ${minimumScore}): ${title}`
-  );
-  continue;
-}
+    if (score < minimumScore) {
+      skipped++;
+      console.log(
+        `[rss] Не по теме (${score}, порог ${minimumScore}): ${title}`
+      );
+      continue;
+    }
 
     console.log(`[rss] Релевантность ${score}: ${title}`);
 
     const publishedAt = item.isoDate || item.pubDate || '';
-   
+
     const preparedContent = [
       publishedAt ? `Дата публикации: ${publishedAt}` : '',
       content,
