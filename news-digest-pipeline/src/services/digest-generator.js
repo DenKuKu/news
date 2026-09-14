@@ -49,39 +49,49 @@ function extractJson(rawText) {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-function normalizeScore(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) throw new Error('relevance_score должен быть числом от 0 до 100');
-  return Math.max(0, Math.min(100, Math.round(numeric)));
+function pickAllowed(value, allowed, fallback) {
+  const raw = cleanText(value, 160).toLowerCase();
+  if (allowed.has(raw)) return raw;
+  const candidates = raw.split(/\s*[|,;/]\s*/).map((part) => part.trim()).filter(Boolean);
+  const match = candidates.find((candidate) => allowed.has(candidate));
+  return match || fallback;
 }
 
 function normalizeCard(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Ответ модели должен быть JSON-объектом');
   const titleRu = cleanText(value.title_ru, 180);
   const summary = cleanText(value.summary, 500);
-  const category = cleanText(value.category, 40).toLowerCase();
-  const signalType = cleanText(value.signal_type, 40).toLowerCase();
+  const category = pickAllowed(value.category, CATEGORIES, 'other');
+  const signalType = pickAllowed(value.signal_type, SIGNAL_TYPES, 'other');
   let confidence = cleanText(value.confidence, 30).toLowerCase();
-  const modelScore = normalizeScore(value.relevance_score);
   const factsSource = Array.isArray(value.facts) ? value.facts : typeof value.facts === 'string' ? [value.facts] : [];
   const facts = factsSource.map((fact) => cleanText(fact, 350)).filter(Boolean).slice(0, 5);
   if (titleRu.length < 3 || facts.length === 0 || summary.length < 8) throw new Error('Неполная карточка');
-  if (!CATEGORIES.has(category)) throw new Error(`Неизвестная category: ${category}`);
-  if (!SIGNAL_TYPES.has(signalType)) throw new Error(`Неизвестный signal_type: ${signalType}`);
   if (confidence === 'высокая') confidence = 'средняя';
-  if (!CONFIDENCE_LEVELS.has(confidence)) throw new Error('confidence должна быть: низкая или средняя');
-  return { title_ru: titleRu, facts, summary, category, signal_type: signalType, confidence, model_score: modelScore, relevance_score: modelScore, score_reason: 'model' };
+  if (!CONFIDENCE_LEVELS.has(confidence)) confidence = 'низкая';
+  return {
+    title_ru: titleRu,
+    facts,
+    summary,
+    category,
+    signal_type: signalType,
+    confidence,
+    score_source: 'programmatic-v2',
+  };
 }
 
-function textOf(article) { return `${article.title || ''}\n${article.content || ''}`.toLowerCase(); }
+function textOf(article) {
+  return `${article.title || ''}\n${article.content || ''}\n${article.url || ''}`.toLowerCase();
+}
 function hasAny(text, terms) { return terms.some((term) => text.includes(term)); }
 
 function applyProgrammaticScore(article, card) {
   const text = textOf(article);
-  let score = card.model_score;
+  let score = 0;
   let signalType = card.signal_type;
   let category = card.category;
   const reasons = [];
+
   const textileTerms = ['textile', 'fabric', 'fabrics', 'polyester', 'yarn', 'dyeing', 'finishing', 'coating', 'printing', 'print'];
   const digitalTerms = ['digital textile', 'digital printing', 'digital print', 'kornit', 'atlas max', 'inkjet'];
   const onDemandTerms = ['on-demand', 'on demand', 'short run', 'short-run', 'agile manufacturing', 'mass customization'];
@@ -89,8 +99,10 @@ function applyProgrammaticScore(article, card) {
   const finishingTerms = ['finishing', 'thermofix', 'heat setting', 'heat-setting', 'stenter', 'brückner', 'bruckner', 'dyeing', 'coating'];
   const automationTerms = ['automation', 'automated', 'ai-powered', 'artificial intelligence', 'digital solution', 'intelligent textile', 'process intelligence'];
   const artTerms = ['installation', 'sculpture', 'art installation', 'grand palais', 'design week'];
-  const designerCaseTerms = ['designer feature', 'designer profile', 'illustrator', 'surface designer'];
+  const designerCaseTerms = ['designer feature', 'designer-feature', 'designer profile', 'illustrator', 'surface designer', 'textile designer specializing'];
   const trendTerms = ['textile design trends', 'trend', 'trends', 'what’s selling', "what's selling"];
+  const furnitureTerms = ['furniture market', 'upholstery', 'upholstered furniture', 'sofa market', 'home furnishings'];
+
   const explicitTextile = hasAny(text, textileTerms);
   const explicitDigital = hasAny(text, digitalTerms);
   const explicitOnDemand = hasAny(text, onDemandTerms);
@@ -100,52 +112,121 @@ function applyProgrammaticScore(article, card) {
   const explicitArt = hasAny(text, artTerms);
   const explicitDesignerCase = hasAny(text, designerCaseTerms);
   const explicitTrend = hasAny(text, trendTerms) && explicitTextile;
+  const explicitFurniture = hasAny(text, furnitureTerms);
 
-  if (explicitOnDemand && explicitDigital) { signalType = 'on-demand'; category = 'print-business'; score = Math.max(score, 70); reasons.push('direct on-demand digital textile signal'); }
-  else if (explicitDigital && explicitTextile) { signalType = 'digital-printing'; category = 'print-business'; score = Math.max(score, 62); reasons.push('direct digital textile printing signal'); }
-  if (explicitFinishing) { if (!['on-demand', 'digital-printing'].includes(signalType)) signalType = 'equipment-finishing'; if (category !== 'print-business') category = 'production'; score = Math.max(score, 55); reasons.push('explicit textile finishing/equipment signal'); }
-  if (explicitChemistry) { signalType = 'textile-chemistry'; category = 'production'; score = Math.max(score, 55); reasons.push('explicit textile chemistry signal'); }
-  if (explicitAutomation && !explicitDigital && !explicitFinishing && !explicitChemistry) { signalType = 'automation'; category = 'production'; score = Math.max(score, 52); reasons.push('textile automation signal'); }
-  if (explicitTrend && !explicitDesignerCase) { signalType = 'design-trend'; category = 'design-trends'; score = Math.max(score, 55); reasons.push('explicit textile trend article'); }
-  if (explicitDesignerCase || signalType === 'designer-case') { signalType = 'designer-case'; category = 'design-trends'; score = Math.min(score, 49); reasons.push('single designer case capped'); }
-  if (explicitArt && !explicitTextile) { signalType = 'installation-art'; category = 'other'; score = Math.min(score, 29); reasons.push('art/installation without explicit textile link capped'); }
-  if (signalType === 'installation-art' && !explicitTextile) { score = Math.min(score, 29); reasons.push('installation-art cap'); }
-  if (signalType === 'other' && !explicitTextile) { score = Math.min(score, 39); reasons.push('generic non-textile signal capped'); }
-  return { ...card, signal_type: signalType, category, relevance_score: Math.max(0, Math.min(100, Math.round(score))), score_reason: reasons.length ? reasons.join('; ') : 'model score retained' };
+  if (explicitOnDemand && explicitDigital) {
+    signalType = 'on-demand'; category = 'print-business'; score = 70;
+    reasons.push('direct on-demand digital textile signal');
+  } else if (explicitDigital && explicitTextile) {
+    signalType = 'digital-printing'; category = 'print-business'; score = 62;
+    reasons.push('direct digital textile printing signal');
+  }
+
+  if (explicitFinishing && score < 62) {
+    signalType = 'equipment-finishing'; category = 'production'; score = Math.max(score, 55);
+    reasons.push('explicit textile finishing/equipment signal');
+  }
+
+  if (explicitChemistry && score < 62) {
+    signalType = 'textile-chemistry'; category = 'production'; score = Math.max(score, 55);
+    reasons.push('explicit textile chemistry signal');
+  }
+
+  if (explicitAutomation && !explicitDigital && !explicitFinishing && !explicitChemistry) {
+    signalType = 'automation'; category = 'production'; score = Math.max(score, 52);
+    reasons.push('textile automation signal');
+  }
+
+  if (explicitTrend && !explicitDesignerCase && score < 62) {
+    signalType = 'design-trend'; category = 'design-trends'; score = Math.max(score, 55);
+    reasons.push('explicit textile trend article');
+  }
+
+  if (explicitFurniture && !explicitDesignerCase && !explicitArt && score === 0) {
+    signalType = 'furniture-market'; category = 'furniture-market'; score = 50;
+    reasons.push('explicit furniture/upholstery market signal');
+  }
+
+  if (explicitDesignerCase || signalType === 'designer-case') {
+    signalType = 'designer-case'; category = 'design-trends'; score = Math.min(score || 40, 49);
+    reasons.push('single designer case capped');
+  }
+
+  if (explicitArt && !explicitTextile) {
+    signalType = 'installation-art'; category = 'other'; score = Math.min(score || 20, 29);
+    reasons.push('art/installation without explicit textile link capped');
+  }
+
+  if (signalType === 'installation-art' && !explicitTextile) {
+    score = Math.min(score || 20, 29);
+    reasons.push('installation-art cap');
+  }
+
+  if (score === 0 && signalType === 'automation' && explicitTextile) {
+    score = 40; category = 'production'; reasons.push('model-classified automation without explicit automation terms');
+  }
+  if (score === 0 && signalType === 'furniture-market' && explicitTextile) {
+    score = 40; category = 'furniture-market'; reasons.push('model-classified furniture signal with textile context');
+  }
+  if (score === 0 && signalType === 'design-trend' && explicitTextile) {
+    score = 40; category = 'design-trends'; reasons.push('model-classified textile trend without explicit trend wording');
+  }
+  if (score === 0 && signalType === 'other' && !explicitTextile) {
+    score = 0; reasons.push('generic non-textile signal');
+  }
+  if (score === 0 && explicitTextile) {
+    score = 35; reasons.push('textile-related but no direct priority mechanism');
+  }
+
+  return {
+    ...card,
+    signal_type: signalType,
+    category,
+    relevance_score: Math.max(0, Math.min(100, Math.round(score))),
+    score_reason: reasons.length ? reasons.join('; ') : 'no direct programmatic signal',
+  };
 }
 
 function parseCardFromCommentary(commentary, article) {
   const parsed = extractJson(commentary);
   if (!parsed.signal_type || !parsed.summary || parsed.action_supported !== undefined || parsed.evidence_chain !== undefined) throw new Error('Старый формат commentary');
+  if (parsed.model_score !== undefined || parsed.score_source !== 'programmatic-v2') throw new Error('Старый формат scoring');
   return applyProgrammaticScore(article, normalizeCard(parsed));
 }
 
 async function analyzeArticle(article, commentarySystem, config, log) {
   const contentTruncated = (article.content || '').slice(0, MAX_CONTENT_LENGTH);
   const baseUserMessage = [
-    'КОНТЕКСТ TEXTURALAB нужен только для оценки релевантности, но НЕ для придумывания применений.',
+    'КОНТЕКСТ TEXTURALAB нужен только для классификации, но НЕ для придумывания применений.',
     '- B2B: мебельные фабрики, декораторы, интерьерные студии.',
     '- Приоритет: цифровая сублимационная печать по полиэстеровым мебельным тканям, короткие серии, дизайн по запросу.',
     '- Дополнительный интерес: окрашивание, отделка, пропитка, сушка, термофиксация, текстильная химия, автоматизация.',
     '', `ЗАГОЛОВОК: ${article.title || 'не указан'}`, '', 'RSS:', contentTruncated || 'не предоставлено', '',
     'ТВОЯ РОЛЬ — ТОЛЬКО ИЗВЛЕЧЕНИЕ И КЛАССИФИКАЦИЯ ФАКТОВ.',
-    'Не предлагай действия. Не строй причинные цепочки. Не расширяй единичный кейс до тренда.',
+    'Не оценивай релевантность числом. Не предлагай действия. Не строй причинные цепочки. Не расширяй единичный кейс до тренда.',
     'Классифицируй signal_type по фактам: on-demand, digital-printing, equipment-finishing, textile-chemistry, automation, design-trend, designer-case, furniture-market, installation-art или other.',
-    '',
-    'relevance_score ОБЯЗАТЕЛЬНО должен быть целым числом 0-100, НЕ шкалой 0-5.',
-    'Шкала первого прохода: 80-100 прямой сильный сигнал; 60-79 прямой полезный; 40-59 смежный, требующий подтверждения; 20-39 слабый; 0-19 шум.',
-    'Не ставь 0 только потому, что практическое действие ещё не сформулировано: на этом этапе действие вообще запрещено.',
+    'Выбери РОВНО ОДИН signal_type и РОВНО ОДНУ category. Не перечисляй варианты через |, запятую или слэш.',
     '', 'Верни только JSON:',
-    '{"title_ru":"...","facts":["..."],"summary":"...","signal_type":"digital-printing | on-demand | equipment-finishing | textile-chemistry | design-trend | designer-case | furniture-market | installation-art | automation | other","category":"production | print-business | design-trends | furniture-market | new-niches | other","confidence":"низкая | средняя","relevance_score":55}',
-    '', 'Не добавляй сведения, которых нет в RSS.',
+    '{"title_ru":"...","facts":["..."],"summary":"...","signal_type":"other","category":"other","confidence":"низкая | средняя"}',
+    '', 'Не добавляй relevance_score. Балл вычисляется кодом после твоего ответа.',
+    'Не добавляй сведения, которых нет в RSS.',
   ].join('\n');
+
   let totalInputTokens = 0, totalOutputTokens = 0, lastError = null;
   for (let attempt = 1; attempt <= ANALYSIS_ATTEMPTS; attempt += 1) {
     const userMessage = attempt === 1 ? baseUserMessage : `${baseUserMessage}\n\nПредыдущий ответ не прошёл проверку: ${lastError?.message}. Исправь JSON.`;
     const response = await callModel(config, { system: commentarySystem, user: userMessage, maxTokens: 900 });
     totalInputTokens += response.inputTokens; totalOutputTokens += response.outputTokens;
-    try { return { card: applyProgrammaticScore(article, normalizeCard(extractJson(response.text))), totalInputTokens, totalOutputTokens }; }
-    catch (error) { lastError = error; log.push(`Article ${article.id}: invalid extraction attempt ${attempt}: ${error.message}`); }
+    try {
+      const raw = extractJson(response.text);
+      const recoveredChoice = cleanText(raw.signal_type, 160).includes('|') || cleanText(raw.category, 160).includes('|');
+      const card = applyProgrammaticScore(article, normalizeCard(raw));
+      if (recoveredChoice) log.push(`Article ${article.id}: recovered multi-choice enum from model output`);
+      return { card, totalInputTokens, totalOutputTokens };
+    } catch (error) {
+      lastError = error;
+      log.push(`Article ${article.id}: invalid extraction attempt ${attempt}: ${error.message}`);
+    }
   }
   throw lastError || new Error('Не удалось получить валидный JSON');
 }
@@ -246,7 +327,7 @@ function buildDigest(entries, synthesis, config, skippedCount = 0) {
   if (cleanText(config.boundaryIntent, 1000)) ending.push(cleanText(config.boundaryIntent, 1000));
   if (cleanText(config.hashtagsSuffix, 1000)) ending.push(cleanText(config.hashtagsSuffix, 1000));
   const filterNote = skippedCount > 0 ? `Отсеяно материалов: ${skippedCount}. Порог основного дайджеста — ${MIN_RELEVANCE_SCORE}/100; пограничные ${SYNTHESIS_FLOOR}-${MIN_RELEVANCE_SCORE - 1} могли быть повышены только кластером.` : 'Все обработанные материалы вошли в итог.';
-  return [marker, '', `Сначала — синтез повторяющихся и наиболее практичных сигналов. ${filterNote}`, '', '## Главные выводы', '', ...clusterSections.flatMap((section, index) => index === clusterSections.length - 1 ? [section] : [section, '', '---', '']), '', '## Что делать TexturaLab', '', actionLines, '', '## Материалы, вошедшие в итог', '', ...groupedSections.flatMap((section, index) => index === groupedSections.length - 1 ? [section] : [section, '', '---', '']), '', '### Как читать этот дайджест', '', 'Первый проход извлекает факты без действий. Балл затем корректируется программными правилами. Второй проход объединяет только сигналы одного конкретного механизма; пограничные материалы могут подтверждать более сильный сигнал.', '', ...ending].filter((part) => part !== null && part !== undefined).join('\n');
+  return [marker, '', `Сначала — синтез повторяющихся и наиболее практичных сигналов. ${filterNote}`, '', '## Главные выводы', '', ...clusterSections.flatMap((section, index) => index === clusterSections.length - 1 ? [section] : [section, '', '---', '']), '', '## Что делать TexturaLab', '', actionLines, '', '## Материалы, вошедшие в итог', '', ...groupedSections.flatMap((section, index) => index === groupedSections.length - 1 ? [section] : [section, '', '---', '']), '', '### Как читать этот дайджест', '', 'Первый проход только извлекает факты и тип сигнала. Балл релевантности полностью рассчитывается программными правилами. Второй проход объединяет только сигналы одного конкретного механизма; пограничные материалы могут подтверждать более сильный сигнал.', '', ...ending].filter((part) => part !== null && part !== undefined).join('\n');
 }
 
 export async function generateDigest(db, articles, config) {
@@ -261,15 +342,19 @@ export async function generateDigest(db, articles, config) {
   for (const article of articles) {
     try {
       if (article.commentary) {
-        try { const card = parseCardFromCommentary(article.commentary, article); analyzedEntries.push({ article, card }); log.push(`Reused fact-first commentary for article ${article.id}: score=${card.relevance_score}`); continue; }
-        catch { /* old format */ }
+        try {
+          const card = parseCardFromCommentary(article.commentary, article);
+          analyzedEntries.push({ article, card });
+          log.push(`Reused programmatic commentary for article ${article.id}: score=${card.relevance_score}`);
+          continue;
+        } catch { /* old format */ }
       }
       updateArticleStatus(article.id, 'processing');
       const result = await analyzeArticle(article, commentarySystem, config, log);
       totalInputTokens += result.totalInputTokens; totalOutputTokens += result.totalOutputTokens;
       const storedJson = JSON.stringify(result.card, null, 2); updateArticleCommentary(article.id, storedJson); article.commentary = storedJson;
       analyzedEntries.push({ article, card: result.card });
-      log.push(`Extracted article ${article.id}: model=${result.card.model_score}, final=${result.card.relevance_score}, type=${result.card.signal_type}, reason=${result.card.score_reason}`);
+      log.push(`Extracted article ${article.id}: final=${result.card.relevance_score}, type=${result.card.signal_type}, reason=${result.card.score_reason}`);
       await sleep(INTER_CALL_DELAY_MS);
     } catch (error) { log.push(`Error analyzing article ${article.id}: ${error.message}`); updateArticleStatus(article.id, 'error'); }
   }
@@ -291,7 +376,7 @@ export async function generateDigest(db, articles, config) {
   const digestId = createDigest({ date: today, part: 1, articlesCount: entries.length });
   const pricing = priceFor(config.claudeModel); let costUsd = null;
   if (pricing) { const rawCost = (totalInputTokens / 1e6) * pricing.input + (totalOutputTokens / 1e6) * pricing.output; costUsd = Math.round(rawCost * 1e6) / 1e6; }
-  log.push(`Tokens: in=${totalInputTokens} out=${totalOutputTokens} | Model: ${config.claudeModel} | fact-first=true | candidates=${candidates.length} included=${entries.length} filtered=${skippedEntries.length}`);
+  log.push(`Tokens: in=${totalInputTokens} out=${totalOutputTokens} | Model: ${config.claudeModel} | fact-first=true | scoring=programmatic-v2 | candidates=${candidates.length} included=${entries.length} filtered=${skippedEntries.length}`);
   updateDigest(digestId, { content: digestContent, status: 'draft', generation_log: log.join('\n'), model: config.claudeModel, input_tokens: totalInputTokens, output_tokens: totalOutputTokens, cost_usd: costUsd });
   const articleIds = entries.map(({ article }) => article.id); assignArticlesToDigest(articleIds, digestId);
   const filePath = saveDigestToFile(today, digestContent); log.push(`Digest saved to file: ${filePath}`); log.push(`Digest created: ${digestId}`);
