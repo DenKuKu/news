@@ -11,6 +11,7 @@ $projectDir = Split-Path -Parent $scriptDir
 $runner = Join-Path $scriptDir 'regular-run.js'
 $logDir = Join-Path $projectDir 'output'
 $stdoutLog = Join-Path $logDir 'regular-run.log'
+$wrapper = Join-Path $scriptDir 'run-regular-task.ps1'
 
 if (-not (Test-Path $runner)) {
   throw "Runner not found: $runner"
@@ -20,10 +21,22 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $node = (Get-Command node -ErrorAction Stop).Source
 
-# Use cmd.exe only to append stdout/stderr to a persistent log. The runner sets
-# its own working directory, so the scheduled task is independent of where it starts.
-$cmdArgs = "/d /s /c `"`"$node`" `"$runner`" >> `"$stdoutLog`" 2>&1`""
-$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -Argument $cmdArgs
+# Windows Task Scheduler normally captures child-process output through the
+# active OEM/ANSI code page. That corrupts UTF-8 emitted by Node.js. Run Node
+# through a tiny PowerShell wrapper, switch the console to UTF-8, and append
+# decoded text explicitly as UTF-8.
+$wrapperContent = @"
+`$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new(`$false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
+`$OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
+& '$node' '$runner' 2>&1 | Out-File -FilePath '$stdoutLog' -Append -Encoding utf8
+exit `$LASTEXITCODE
+"@
+Set-Content -Path $wrapper -Value $wrapperContent -Encoding UTF8
+
+$actionArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$wrapper`""
+$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument $actionArgs
 
 $morningTime = [DateTime]::ParseExact($Morning, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
 $eveningTime = [DateTime]::ParseExact($Evening, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
@@ -48,7 +61,7 @@ Write-Host ''
 Write-Host "Installed scheduled task: $TaskName"
 Write-Host "Schedule: every day at $Morning and $Evening"
 Write-Host "Runner:   $runner"
-Write-Host "Log:      $stdoutLog"
+Write-Host "Log:      $stdoutLog (UTF-8)"
 Write-Host ''
 Write-Host 'The task imports RSS on every run.'
 Write-Host 'A digest is generated only when at least 5 new filtered articles are queued.'
