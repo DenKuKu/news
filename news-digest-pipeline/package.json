@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "regular": "node scripts/regular-run.js",
+    "telegram:setup": "node scripts/telegram-setup.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
