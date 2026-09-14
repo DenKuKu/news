@@ -27,10 +27,9 @@ $action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\cmd.exe" -A
 
 $morningTime = [DateTime]::ParseExact($Morning, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
 $eveningTime = [DateTime]::ParseExact($Evening, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-$triggers = @(
-  New-ScheduledTaskTrigger -Daily -At $morningTime,
-  New-ScheduledTaskTrigger -Daily -At $eveningTime
-)
+$triggers = @()
+$triggers += New-ScheduledTaskTrigger -Daily -At $morningTime
+$triggers += New-ScheduledTaskTrigger -Daily -At $eveningTime
 
 $settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `
