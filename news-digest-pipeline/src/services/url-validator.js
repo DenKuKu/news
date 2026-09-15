@@ -1,6 +1,14 @@
 import { isIP } from 'node:net';
 
-const DEFAULT_ALLOWED_HOSTS = ['perplexity.ai'];
+const DEFAULT_ALLOWED_HOSTS = [
+  'perplexity.ai',
+  'dezeen.com',
+  'textilegence.com',
+  'textileworld.com',
+  'indiantextilemagazine.in',
+  'theinteriorsaddict.com',
+  'patternobserver.com',
+];
 const MAX_URL_LEN = 2048;
 
 // eslint-disable-next-line no-control-regex
