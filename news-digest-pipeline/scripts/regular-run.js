@@ -72,13 +72,13 @@ async function sendTelegramDigest(config, dbModule, digestId) {
 
   if (!token || !chatId) {
     log('Telegram delivery is not configured; digest remains available in the web UI.');
-    return;
+    return false;
   }
 
   const digest = dbModule.getDigest(digestId);
   if (!digest?.content?.trim()) {
     log(`Telegram delivery skipped: digest ${digestId} has no content.`);
-    return;
+    return false;
   }
 
   const header = [
@@ -114,6 +114,34 @@ async function sendTelegramDigest(config, dbModule, digestId) {
     dbModule.updateDigest(digestId, { telegram_message_id: String(firstMessageId) });
   }
   log(`Telegram delivery complete: digest=${digestId}, messages=${chunks.length}`);
+  return true;
+}
+
+async function retryPendingTelegramDigests(config, db, dbModule) {
+  const token = String(config.telegramBotToken || '').trim();
+  const chatId = String(config.telegramChatId || config.telegramPublishChatId || '').trim();
+  if (!token || !chatId) return;
+
+  const pending = db.prepare(`
+    SELECT id
+    FROM digests
+    WHERE content IS NOT NULL
+      AND TRIM(content) <> ''
+      AND telegram_message_id IS NULL
+    ORDER BY created_at ASC, id ASC
+  `).all();
+
+  if (!pending.length) return;
+  log(`Telegram retry queue: pending=${pending.length}`);
+
+  for (const row of pending) {
+    try {
+      await sendTelegramDigest(config, dbModule, row.id);
+    } catch (error) {
+      log(`Telegram retry failed: digest=${row.id}, error=${error.message}`);
+      break;
+    }
+  }
 }
 
 async function main() {
@@ -154,6 +182,11 @@ async function main() {
     ]);
 
     const db = dbModule.initDb(config.dbPath);
+
+    // Every scheduled run first retries digests that were created successfully
+    // but could not be delivered to Telegram on an earlier run.
+    await retryPendingTelegramDigests(config, db, dbModule);
+
     const newCount = db.prepare("SELECT COUNT(*) AS count FROM articles WHERE status = 'new' AND digest_id IS NULL").get().count;
     const minArticles = Math.max(1, Number.parseInt(process.env.REGULAR_DIGEST_MIN_ARTICLES || '5', 10) || 5);
 
@@ -189,7 +222,7 @@ async function main() {
     try {
       await sendTelegramDigest(config, dbModule, digestId);
     } catch (error) {
-      log(`Telegram delivery failed: ${error.message}`);
+      log(`Telegram delivery failed: ${error.message}; it will be retried on the next regular run.`);
     }
   } finally {
     try { closeSync(lockFd); } catch {}
