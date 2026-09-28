@@ -48,31 +48,17 @@ async function localModelAvailable(config) {
   }
 }
 
-function splitTelegramText(text, maxLength = 3900) {
-  const source = String(text || '').trim();
-  if (!source) return [];
-
-  const chunks = [];
-  let rest = source;
-  while (rest.length > maxLength) {
-    let cut = rest.lastIndexOf('\n\n', maxLength);
-    if (cut < Math.floor(maxLength * 0.55)) cut = rest.lastIndexOf('\n', maxLength);
-    if (cut < Math.floor(maxLength * 0.55)) cut = rest.lastIndexOf(' ', maxLength);
-    if (cut <= 0) cut = maxLength;
-    chunks.push(rest.slice(0, cut).trim());
-    rest = rest.slice(cut).trim();
-  }
-  if (rest) chunks.push(rest);
-  return chunks;
-}
-
 async function sendTelegramDigest(config, dbModule, digestId) {
-  const token = String(config.telegramBotToken || '').trim();
-  const chatId = String(config.telegramChatId || config.telegramPublishChatId || '').trim();
+  const relayUrl = String(config.telegramRelayUrl || '').trim();
+  const relaySecret = String(config.telegramRelaySecret || '').trim();
 
-  if (!token || !chatId) {
-    log('Telegram delivery is not configured; digest remains available in the web UI.');
+  if (!relayUrl || !relaySecret) {
+    log('Telegram relay is not configured; digest remains pending.');
     return false;
+  }
+
+  if (!/^https:\/\//i.test(relayUrl)) {
+    throw new Error('TELEGRAM_RELAY_URL must use HTTPS');
   }
 
   const digest = dbModule.getDigest(digestId);
@@ -81,46 +67,53 @@ async function sendTelegramDigest(config, dbModule, digestId) {
     return false;
   }
 
-  const header = [
-    'TexturaLab — новый рыночный дайджест',
-    digest.seq_number ? `Дайджест #${digest.seq_number}` : null,
-    digest.date ? `Дата: ${digest.date}` : null,
-    digest.articles_count ? `Материалов: ${digest.articles_count}` : null,
-  ].filter(Boolean).join('\n');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
 
-  const chunks = splitTelegramText(`${header}\n\n${digest.content}`);
-  let firstMessageId = null;
-
-  for (let i = 0; i < chunks.length; i += 1) {
-    const prefix = chunks.length > 1 ? `[${i + 1}/${chunks.length}]\n` : '';
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  try {
+    const response = await fetch(relayUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${relaySecret}`,
+      },
       body: JSON.stringify({
-        chat_id: chatId,
-        text: `${prefix}${chunks[i]}`,
-        disable_web_page_preview: true,
+        digestId,
+        text: digest.content,
+        seqNumber: digest.seq_number ?? null,
+        date: digest.date ?? null,
+        articlesCount: digest.articles_count ?? null,
       }),
+      signal: controller.signal,
     });
 
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.ok === false) {
-      throw new Error(payload.description || `Telegram HTTP ${response.status}`);
+    if (!response.ok || payload.ok !== true) {
+      throw new Error(payload.error || `Relay HTTP ${response.status}`);
     }
-    if (firstMessageId === null) firstMessageId = payload?.result?.message_id || null;
-  }
 
-  if (firstMessageId !== null) {
-    dbModule.updateDigest(digestId, { telegram_message_id: String(firstMessageId) });
+    const firstMessageId = payload.telegramMessageId;
+    if (firstMessageId == null) {
+      throw new Error('Relay returned success without telegramMessageId');
+    }
+
+    dbModule.updateDigest(digestId, {
+      telegram_message_id: String(firstMessageId),
+    });
+
+    log(
+      `Telegram relay delivery complete: digest=${digestId}, messages=${payload.messageCount || 1}, duplicate=${Boolean(payload.duplicate)}`,
+    );
+    return true;
+  } finally {
+    clearTimeout(timer);
   }
-  log(`Telegram delivery complete: digest=${digestId}, messages=${chunks.length}`);
-  return true;
 }
 
 async function retryPendingTelegramDigests(config, db, dbModule) {
-  const token = String(config.telegramBotToken || '').trim();
-  const chatId = String(config.telegramChatId || config.telegramPublishChatId || '').trim();
-  if (!token || !chatId) return;
+  const relayUrl = String(config.telegramRelayUrl || '').trim();
+  const relaySecret = String(config.telegramRelaySecret || '').trim();
+  if (!relayUrl || !relaySecret) return;
 
   const pending = db.prepare(`
     SELECT id
