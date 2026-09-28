@@ -1,0 +1,27 @@
+[Unit]
+Description=TexturaLab Telegram Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/texturalab-news/news-digest-pipeline
+ExecStart=/usr/bin/node /opt/texturalab-news/news-digest-pipeline/scripts/telegram-relay.js
+EnvironmentFile=/etc/texturalab-telegram-relay.env
+Environment=NODE_ENV=production
+Environment=RELAY_HOST=127.0.0.1
+Environment=RELAY_PORT=3001
+Environment=RELAY_STATE_FILE=/var/lib/texturalab-telegram-relay/idempotency.json
+
+DynamicUser=true
+StateDirectory=texturalab-telegram-relay
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
