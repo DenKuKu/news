@@ -132,6 +132,8 @@ function buildConfig() {
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
     telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
     telegramPublishChatId: process.env.TELEGRAM_PUBLISH_CHAT_ID || '',
+    telegramRelayUrl: process.env.TELEGRAM_RELAY_URL || '',
+    telegramRelaySecret: process.env.TELEGRAM_RELAY_SECRET || '',
     youtubeAccessToken: process.env.YOUTUBE_ACCESS_TOKEN || '',
     youtubeChannelId: process.env.YOUTUBE_CHANNEL_ID || '',
 
