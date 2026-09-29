@@ -11,7 +11,7 @@ $projectDir = Split-Path -Parent $scriptDir
 $runner = Join-Path $scriptDir 'regular-run.js'
 $logDir = Join-Path $projectDir 'output'
 $stdoutLog = Join-Path $logDir 'regular-run.log'
-$wrapper = Join-Path $scriptDir 'run-regular-task.ps1'
+$wrapper = Join-Path $scriptDir 'run-regular-task.cmd'
 
 if (-not (Test-Path $runner)) {
   throw "Runner not found: $runner"
@@ -21,25 +21,27 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $node = (Get-Command node -ErrorAction Stop).Source
 
-# Windows Task Scheduler normally captures child-process output through the
-# active OEM/ANSI code page. That corrupts UTF-8 emitted by Node.js. Run Node
-# through a tiny PowerShell wrapper, switch the console to UTF-8, and append
-# decoded text explicitly as UTF-8.
+# Keep Task Scheduler simple: cmd.exe launches Node directly and redirects the
+# process output to the log. This avoids piping a native process through a
+# PowerShell pipeline, which adds an unnecessary termination/console layer.
 $wrapperContent = @"
-`$ErrorActionPreference = 'Stop'
-[Console]::InputEncoding = [System.Text.UTF8Encoding]::new(`$false)
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
-`$OutputEncoding = [System.Text.UTF8Encoding]::new(`$false)
-& '$node' '$runner' 2>&1 | Out-File -FilePath '$stdoutLog' -Append -Encoding utf8
-exit `$LASTEXITCODE
+@echo off
+chcp 65001 >nul
+cd /d "$projectDir"
+"$node" "$runner" >> "$stdoutLog" 2>&1
+exit /b %ERRORLEVEL%
 "@
-Set-Content -Path $wrapper -Value $wrapperContent -Encoding UTF8
+Set-Content -Path $wrapper -Value $wrapperContent -Encoding ASCII
 
-$actionArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$wrapper`""
-$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Argument $actionArgs
+$actionArgs = "/d /s /c `"`"$wrapper`"`""
+$action = New-ScheduledTaskAction `
+  -Execute "$env:SystemRoot\System32\cmd.exe" `
+  -Argument $actionArgs `
+  -WorkingDirectory $projectDir
 
 $morningTime = [DateTime]::ParseExact($Morning, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
 $eveningTime = [DateTime]::ParseExact($Evening, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+
 $triggers = @()
 $triggers += New-ScheduledTaskTrigger -Daily -At $morningTime
 $triggers += New-ScheduledTaskTrigger -Daily -At $eveningTime
@@ -54,18 +56,19 @@ Register-ScheduledTask `
   -Action $action `
   -Trigger $triggers `
   -Settings $settings `
-  -Description 'TexturaLab: import curated RSS feeds and create a draft digest when enough new articles accumulate.' `
+  -Description 'TexturaLab: import curated RSS feeds and create a digest when enough new articles accumulate.' `
   -Force | Out-Null
 
 Write-Host ''
 Write-Host "Installed scheduled task: $TaskName"
 Write-Host "Schedule: every day at $Morning and $Evening"
 Write-Host "Runner:   $runner"
-Write-Host "Log:      $stdoutLog (UTF-8)"
+Write-Host "Wrapper:  $wrapper"
+Write-Host "Log:      $stdoutLog"
 Write-Host ''
 Write-Host 'The task imports RSS on every run.'
 Write-Host 'A digest is generated only when at least 5 new filtered articles are queued.'
-Write-Host 'Generated digests stay in draft status; publishing remains manual.'
+Write-Host 'Telegram delivery is handled by regular-run via the configured VPS relay.'
 Write-Host ''
 Write-Host 'Test now:'
 Write-Host "  Start-ScheduledTask -TaskName '$TaskName'"
