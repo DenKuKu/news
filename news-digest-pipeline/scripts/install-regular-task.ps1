@@ -27,8 +27,8 @@ $node = (Get-Command node -ErrorAction Stop).Source
 $wrapperContent = @"
 @echo off
 chcp 65001 >nul
-cd /d "$projectDir"
-"$node" "$runner" >> "$stdoutLog" 2>&1
+cd /d "%~dp0.."
+"$node" "%~dp0regular-run.js" >> "%~dp0..\output\regular-run.log" 2>&1
 exit /b %ERRORLEVEL%
 "@
 Set-Content -Path $wrapper -Value $wrapperContent -Encoding ASCII
