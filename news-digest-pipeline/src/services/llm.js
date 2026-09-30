@@ -53,15 +53,20 @@ export async function callModel(config, { system, user, maxTokens, model, vendor
   const resolvedModel = model || config.claudeModel;
 
   if (resolvedVendor === 'openai') {
-    if (!config.openaiApiKey) {
+    const openaiBaseUrl = String(config.openaiBaseUrl || '').trim();
+    const isLocalOpenAiCompatible = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(openaiBaseUrl);
+
+    if (!config.openaiApiKey && !isLocalOpenAiCompatible) {
       throw new Error('OpenAI API key не настроен (.env: OPENAI_API_KEY)');
     }
-    // Lazy import so the package is never loaded for the anthropic path and a
-    // missing install does not break startup.
+
+    // OpenAI SDK requires a non-empty apiKey even when talking to a local
+    // OpenAI-compatible server such as Ollama, which itself does not require
+    // authentication. Use a harmless local-only placeholder in that case.
     const OpenAI = (await import('openai')).default;
     const client = new OpenAI({
-      apiKey: config.openaiApiKey,
-      baseURL: config.openaiBaseUrl || undefined,
+      apiKey: config.openaiApiKey || 'ollama-local',
+      baseURL: openaiBaseUrl || undefined,
     });
     const request = {
       model: resolvedModel,
