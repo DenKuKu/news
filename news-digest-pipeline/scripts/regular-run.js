@@ -206,7 +206,20 @@ async function main() {
       digestId = await generateDigest(db, articles, config);
       log(`Digest created: ${digestId}`);
     } catch (error) {
-      db.prepare("UPDATE articles SET status = 'new', updated_at = datetime('now') WHERE status = 'processing' AND digest_id IS NULL").run();
+      // A transient LLM/config failure can mark every selected article as
+      // "error". Requeue only the batch from this run so the next scheduled
+      // run can retry it after the underlying problem is fixed.
+      const retryableIds = articles.map((article) => article.id);
+      if (retryableIds.length) {
+        const placeholders = retryableIds.map(() => '?').join(',');
+        db.prepare(`
+          UPDATE articles
+          SET status = 'new', updated_at = datetime('now')
+          WHERE id IN (${placeholders})
+            AND digest_id IS NULL
+            AND status IN ('processing', 'error')
+        `).run(...retryableIds);
+      }
       log(`Digest generation failed: ${error.message}`);
       process.exitCode = 1;
       return;
